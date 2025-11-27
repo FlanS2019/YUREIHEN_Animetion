@@ -1,4 +1,4 @@
-// Logo.cpp
+ï»¿// Logo.cpp
 #include "Fade.h"
 #include "Logo.h"
 #include "shader.h"
@@ -9,46 +9,60 @@
 #include <d3d11.h>
 
 static ID3D11ShaderResourceView* g_Texture[4];
-static ID3D11ShaderResourceView* g_SolidTex = nullptr; // 1x1 ”’ƒeƒNƒXƒ`ƒƒi”wŒi—p‚ÉF‚ğæZj
+static ID3D11ShaderResourceView* g_SolidTex = nullptr; // 1x1 ç™½ãƒ†ã‚¯ã‚¹ãƒãƒ£ï¼ˆèƒŒæ™¯ç”¨ã«è‰²ã‚’ä¹—ç®—ï¼‰
 static ID3D11Device* g_pDevice = nullptr;
 static ID3D11DeviceContext* g_pContext = nullptr;
 
 static bool fadeStarted = false;
 
-static float ghostAlpha = 0.0f;
-static bool ghostFadeStarted = false;
+// å„ç”»åƒã®ã‚¢ãƒ«ãƒ•ã‚¡ç®¡ç†ï¼ˆå…¨ã¦ 500x500 ã§æãï¼‰
+// index: 0 = yakata_jimen (é¤¨) â€” ãƒ•ã‚§ãƒ¼ãƒ‰ã—ãªã„ï¼ˆå¸¸æ™‚ 1.0ï¼‰
+//        1 = yurei1     (å¹½éœŠ) â€” ãƒ•ã‚§ãƒ¼ãƒ‰ã‚¤ãƒ³ã—ã¦é¤¨ä»˜è¿‘ã§æµ®éŠâ†’å¿…è¦æ™‚ã«é¤¨ã¸ç§»å‹•
+//        2 = basuta1    (ç§»å‹•ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆ) â€” å³ã‹ã‚‰æ¥ã¦é¤¨ã¸ç§»å‹•
+static float alpha[3] = { 1.0f, 0.0f, 0.0f };
 
-static float ghostAlpha2 = 0.0f;
-static bool ghostFadeStarted2 = false;
+static int currentImage = 0;   // æœªä½¿ç”¨ã ãŒæ®‹ã™
+static float imageTimer = 0.0f; // æœªä½¿ç”¨ã ãŒæ®‹ã™
 
-// Še‰æ‘œ‚ÌƒAƒ‹ƒtƒ@ŠÇ—i‘S‚Ä 500x500 ‚Å•`‚­j
-static float alpha[3] = { 0.0f, 0.0f, 0.0f };
-
-static int currentImage = 0;   // Œ»İ•\¦’†‚Ì‰æ‘œ”Ô†
-static float imageTimer = 0.0f; // ‰æ‘œØ‘Öƒ^ƒCƒ}[
-
-// —H—ìƒAƒjƒ[ƒVƒ‡ƒ“—p
+// å¹½éœŠã‚¢ãƒ‹ãƒ¡ãƒ¼ã‚·ãƒ§ãƒ³ç”¨ï¼ˆä½ç½®ãƒ»å›è»¢ç®¡ç†ï¼‰
 static XMFLOAT2 g_ghostOffset = { 0.0f, 0.0f };
-static XMFLOAT2 g_ghostOffset2 = { 0.0f, 0.0f };
-static float g_ghostRotation = 0.0f;
-static float g_ghostRotation2 = 0.0f;
-static const XMFLOAT2 g_imageSize = { 500.0f, 500.0f }; // ‘S‰æ‘œ 500x500 ŒÅ’è
+static float g_ghostBobRotation = 0.0f;    // bobbing ç”¨ã®å°ã•ã„å›è»¢
+static float g_ghostAngle = 0.0f;          // å¹½éœŠã®åŸºæº–è§’ (ãƒ©ã‚¸ã‚¢ãƒ³)
+static float g_ghostTargetAngle = 0.0f;    // ç›®æ¨™è§’ (ãƒ©ã‚¸ã‚¢ãƒ³)
 
-// ¶’[‚Ì‰®•~iyakata_jimenj‚Ì’†SˆÊ’uA—H—ì‚ÌˆÚ“®ˆÊ’uŠÇ—
-static XMFLOAT2 g_yakataPos = { 0.0f, 0.0f };
-static XMFLOAT2 g_ghostPos = { 0.0f, 0.0f };
-static XMFLOAT2 g_ghostTarget = { 0.0f, 0.0f };
+// çŠ¶æ…‹ç®¡ç†
+enum GhostState { GHOST_IDLE = 0, GHOST_ALERT, GHOST_MOVE_TO_HOUSE };
+static GhostState g_ghostState = GHOST_IDLE;
+
+static const XMFLOAT2 g_imageSize = { 500.0f, 500.0f }; // å…¨ç”»åƒ 500x500 å›ºå®š
+
+// å±‹æ•·ã€€å¹½éœŠã€€ã°ã™ãŸã®ä½ç½®ç®¡ç†
+static XMFLOAT2 g_yakataPos = { 0.0f, 0.0f };   // å±‹æ•·ã¯å·¦ç«¯ã«å›ºå®šï¼ˆãƒ•ã‚§ãƒ¼ãƒ‰ãªã—ï¼‰
+static XMFLOAT2 g_ghostPos = { 0.0f, 0.0f };    // å¹½éœŠã®ç¾åœ¨ä½ç½®
+static XMFLOAT2 g_basutaPos = { 0.0f, 0.0f };   // basuta ã®ç¾åœ¨ä½ç½®ï¼ˆå³â†’é¤¨ã¸ç§»å‹•ï¼‰
+static XMFLOAT2 g_basutaTarget = { 0.0f, 0.0f };
 static bool g_positionsInitialized = false;
-static bool g_ghostMoving = true;
+static bool g_basutaMoving = false;
+
+static const float PI = 3.14159265358979323846f;
+
+// è§’åº¦å·®ã‚’ -PI..PI ã«æ­£è¦åŒ–
+static float AngleDelta(float target, float current)
+{
+    float diff = target - current;
+    while (diff > PI) diff -= 2.0f * PI;
+    while (diff < -PI) diff += 2.0f * PI;
+    return diff;
+}
 
 void Logo_Initialize(ID3D11Device* pDevice,
     ID3D11DeviceContext* pContext)
 {
-    // ƒfƒoƒCƒX‚ÆƒfƒoƒCƒXƒRƒ“ƒeƒLƒXƒg‚Ì•Û‘¶‚ ‚ ‚ ‚ QQ‚ ‚ H
+    // ãƒ‡ãƒã‚¤ã‚¹ã¨ãƒ‡ãƒã‚¤ã‚¹ã‚³ãƒ³ãƒ†ã‚­ã‚¹ãƒˆã®ä¿å­˜
     g_pDevice = pDevice;
     g_pContext = pContext;
 
-    //ƒeƒNƒXƒ`ƒƒ“Ç‚İ‚İ
+    //ãƒ†ã‚¯ã‚¹ãƒãƒ£èª­ã¿è¾¼ã¿
     TexMetadata metadata1;
     ScratchImage image1;
     LoadFromWICFile(L"asset\\yureihen\\yakata_jimen1.png",
@@ -69,7 +83,7 @@ void Logo_Initialize(ID3D11Device* pDevice,
         image1.GetImageCount(), metadata1, &g_Texture[2]);
     assert(g_Texture[2]);
 
-    // ”wŒi—p‚Ì 1x1 ”’ƒeƒNƒXƒ`ƒƒ‚ğì¬iF‚ğæZ‚µ‚Ä‡‚É‚·‚éj
+    // èƒŒæ™¯ç”¨ã® 1x1 ç™½ãƒ†ã‚¯ã‚¹ãƒãƒ£ã‚’ä½œæˆï¼ˆè‰²ã‚’ä¹—ç®—ã—ã¦ç´«ã«ã™ã‚‹ï¼‰
     D3D11_TEXTURE2D_DESC td = {};
     td.Width = 1;
     td.Height = 1;
@@ -91,6 +105,16 @@ void Logo_Initialize(ID3D11Device* pDevice,
         pDevice->CreateShaderResourceView(solidTex, nullptr, &g_SolidTex);
         solidTex->Release();
     }
+
+    // yakata ã¯å¸¸ã«è¡¨ç¤ºï¼ˆãƒ•ã‚§ãƒ¼ãƒ‰ç„¡ã—ï¼‰
+    alpha[0] = 1.0f;
+    alpha[1] = 0.0f;
+    alpha[2] = 0.0f;
+
+    // åˆæœŸè§’åº¦
+    g_ghostAngle = 0.0f;
+    g_ghostTargetAngle = 0.0f;
+    g_ghostState = GHOST_IDLE;
 }
 
 void Logo_Finalize()
@@ -117,62 +141,181 @@ void Logo_Update()
     static bool waitStarted = false;
     static float waitTimer = 0.0f;
 
-    // ŠÔ·i60FPSŒÅ’è‘z’èj
+    // æ™‚é–“å·®ï¼ˆ60FPSå›ºå®šæƒ³å®šï¼‰
     const float delta = 1.0f / 60.0f;
     timer += delta;
     imageTimer += delta;
 
-    // Å‰‚ÌƒtƒŒ[ƒ€‚ÅˆÊ’u‚ğŒˆ‚ß‚éi‰æ–ÊƒTƒCƒY‚ª•K—v‚È‚½‚ß‚±‚±‚Å‰Šú‰»j
+    // åˆæœŸä½ç½®ã‚’æœ€åˆã®ã‚¢ãƒƒãƒ—ãƒ‡ãƒ¼ãƒˆã§æ±ºå®šï¼ˆç”»é¢ã‚µã‚¤ã‚ºå‚ç…§ï¼‰
     if (!g_positionsInitialized)
     {
         const float SCREEN_WIDTH = (float)Direct3D_GetBackBufferWidth();
         const float SCREEN_HEIGHT = (float)Direct3D_GetBackBufferHeight();
         XMFLOAT2 center = { SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f };
 
-        // yakata ‚ğ‰æ–Ê¶’[‚É”z’ui’†SÀ•W‚ğƒZƒbƒgj
-        const float leftMargin = 20.0f; // ¶’[‚©‚ç‚Ìƒ}[ƒWƒ“
-        g_yakataPos.x = (g_imageSize.x / 2.0f) + leftMargin; // 500•‚Ì¶‘¤’†SÀ•W
+        // yakata ã‚’ç”»é¢å·¦ç«¯ã«é…ç½®ï¼ˆä¸­å¿ƒåº§æ¨™ï¼‰
+        const float leftMargin = 20.0f; // å·¦ç«¯ã‹ã‚‰ã®ãƒãƒ¼ã‚¸ãƒ³
+        g_yakataPos.x = (g_imageSize.x / 2.0f) + leftMargin;
         g_yakataPos.y = center.y;
 
-        // —H—ì‚Í‰æ–Ê’†‰›‚©‚çƒXƒ^[ƒg
-        g_ghostPos = center;
+        // å¹½éœŠã®åˆæœŸä½ç½®ã¯é¤¨ã®å‰æ–¹ï¼ˆé¤¨ä»˜è¿‘ã§æµ®éŠã•ã›ã‚‹ï¼‰
+        g_ghostPos.x = g_yakataPos.x + (g_imageSize.x * 0.35f);
+        g_ghostPos.y = g_yakataPos.y - 40.0f;
 
-        // —H—ì‚Ì“’…–Ú•W‚Í‰®•~‚Ì’†S‚æ‚è­‚µ‰Ei‰®•~‚Ì³–Ê‚É—ˆ‚éƒCƒ[ƒWj
-        g_ghostTarget.x = g_yakataPos.x + (g_imageSize.x * 0.35f); // ‰®•~’†S‚æ‚è‰EŠñ‚¹
-        g_ghostTarget.y = g_yakataPos.y - 30.0f; // ­‚µã‚É~‚ß‚é
+        // basuta ã¯ç”»é¢å³å¤–ã‹ã‚‰æ¥ã‚‹
+        g_basutaPos.x = SCREEN_WIDTH + (g_imageSize.x / 2.0f) + 100.0f;
+        g_basutaPos.y = center.y + 30.0f;
+
+        // basuta ã®ç›®æ¨™ã¯é¤¨ã®å‰æ–¹ï¼ˆå¹½éœŠã‚ˆã‚Šå°‘ã—ä¸‹ï¼‰
+        g_basutaTarget.x = g_yakataPos.x + (g_imageSize.x * 0.25f);
+        g_basutaTarget.y = g_yakataPos.y + 20.0f;
+
         g_positionsInitialized = true;
-        g_ghostMoving = true;
+        g_basutaMoving = false; // ã‚¿ã‚¤ãƒŸãƒ³ã‚°ã§é–‹å§‹
     }
 
-    // ‰æ‘œ•\¦/Ø‘Öƒpƒ‰ƒ[ƒ^
-    const float displayDuration = 3.0f; // 1–‡‚ ‚½‚è•\¦ŠÔ
-    const float fadeDuration = 0.8f;    // ƒtƒF[ƒhŠÔ
+    // ãƒ•ã‚§ãƒ¼ãƒ‰ timing / durations
+    const float ghostStart = 0.5f;    // å¹½éœŠãƒ•ã‚§ãƒ¼ãƒ‰é–‹å§‹
+    const float basutaStart = 2.0f;   // basuta ãƒ•ã‚§ãƒ¼ãƒ‰/ç§»å‹•é–‹å§‹
+    const float fadeDuration = 0.8f;
 
-    // ‰æ‘œ©“®Ø‘Öˆ—
-    if (imageTimer > displayDuration)
+    // å¹½éœŠãƒ•ã‚§ãƒ¼ãƒ‰ã‚¤ãƒ³ï¼ˆé¤¨è¿‘ãã«å¸¸é§ã€ãµã‚ãµã‚ã¯ä¸‹ã§åŠ ç®—ï¼‰
+    if (timer > ghostStart)
     {
-        currentImage = (currentImage + 1) % 3;
-        imageTimer = 0.0f;
+        alpha[1] += delta / fadeDuration;
+        if (alpha[1] > 1.0f) alpha[1] = 1.0f;
     }
 
-    // Še‰æ‘œ‚ÌƒtƒF[ƒhƒCƒ“ / ƒtƒF[ƒhƒAƒEƒg‚ğŠÇ—iŠmÀ‚É0‚É‚È‚é‚æ‚¤‚ÉƒNƒ‰ƒ“ƒvj
-    for (int i = 0; i < 3; ++i)
+    // basuta ãƒ•ã‚§ãƒ¼ãƒ‰ã‚¤ãƒ³ã¨ç§»å‹•é–‹å§‹
+    if (timer > basutaStart)
     {
-        if (i == currentImage)
+        // ãƒ•ã‚§ãƒ¼ãƒ‰ã‚¤ãƒ³
+        alpha[2] += delta / fadeDuration;
+        if (alpha[2] > 1.0f) alpha[2] = 1.0f;
+        // ç§»å‹•é–‹å§‹
+        g_basutaMoving = true;
+    }
+
+    // basuta ã®ç§»å‹•å‡¦ç†ï¼ˆå³ã‹ã‚‰é¤¨ã¸ï¼‰
+    if (g_basutaMoving)
+    {
+        const float moveSpeed = 220.0f; // px / sec
+        float dx = g_basutaTarget.x - g_basutaPos.x;
+        float dy = g_basutaTarget.y - g_basutaPos.y;
+        float dist = sqrtf(dx * dx + dy * dy);
+        if (dist > 1.0f)
         {
-            // ƒtƒF[ƒhƒCƒ“
-            alpha[i] += delta / fadeDuration;
-            if (alpha[i] > 1.0f) alpha[i] = 1.0f;
+            float nx = dx / dist;
+            float ny = dy / dist;
+            float step = moveSpeed * delta;
+            if (step >= dist)
+            {
+                g_basutaPos.x = g_basutaTarget.x;
+                g_basutaPos.y = g_basutaTarget.y;
+                g_basutaMoving = false;
+            }
+            else
+            {
+                g_basutaPos.x += nx * step;
+                g_basutaPos.y += ny * step;
+            }
         }
         else
         {
-            // ƒtƒF[ƒhƒAƒEƒg
-            alpha[i] -= delta / fadeDuration;
-            if (alpha[i] < 0.0f) alpha[i] = 0.0f;
+            g_basutaPos.x = g_basutaTarget.x;
+            g_basutaPos.y = g_basutaTarget.y;
+            g_basutaMoving = false;
         }
     }
 
-    // ‘S‘ÌƒtƒF[ƒhŠJni‘JˆÚj
+    // basuta ãŒè¿‘ã¥ã„ãŸã‚‰å¹½éœŠãŒæŒ¯ã‚Šå‘ãã€ãã®å¾Œé¤¨ã¸å‘ã‹ã†ãƒ­ã‚¸ãƒƒã‚¯
+    {
+        // ç™ºå‹•è·é›¢
+        const float triggerDist = 220.0f;
+
+        // è·é›¢è¨ˆç®—
+        float dx = g_basutaPos.x - g_ghostPos.x;
+        float dy = g_basutaPos.y - g_ghostPos.y;
+        float dist = sqrtf(dx * dx + dy * dy);
+
+        if (g_ghostState == GHOST_IDLE)
+        {
+            // basuta ãŒè¿‘ã¥ãã€basuta ãŒãƒ•ã‚§ãƒ¼ãƒ‰ã‚¤ãƒ³æ¸ˆã¿ãªã‚‰è­¦æˆ’çŠ¶æ…‹ã¸
+            if (dist <= triggerDist && alpha[2] > 0.3f)
+            {
+                g_ghostState = GHOST_ALERT;
+                // basuta ã®æ–¹ã‚’å‘ã
+                g_ghostTargetAngle = atan2f(g_basutaPos.y - g_ghostPos.y, g_basutaPos.x - g_ghostPos.x);
+            }
+        }
+        else if (g_ghostState == GHOST_ALERT)
+        {
+            // å›è»¢é€Ÿåº¦ï¼ˆãƒ©ã‚¸ã‚¢ãƒ³/ç§’ï¼‰
+            const float rotSpeed = 3.5f;
+            float deltaAngle = AngleDelta(g_ghostTargetAngle, g_ghostAngle);
+            float maxStep = rotSpeed * delta;
+            if (fabsf(deltaAngle) <= maxStep)
+            {
+                // å›è»¢å®Œäº† â†’ é¤¨ã¸å‘ã‹ã£ã¦ç§»å‹•é–‹å§‹
+                g_ghostAngle = g_ghostTargetAngle;
+                g_ghostState = GHOST_MOVE_TO_HOUSE;
+            }
+            else
+            {
+                // ã‚¹ãƒ ãƒ¼ã‚ºã«å›è»¢
+                g_ghostAngle += (deltaAngle > 0.0f ? 1.0f : -1.0f) * maxStep;
+            }
+        }
+        else if (g_ghostState == GHOST_MOVE_TO_HOUSE)
+        {
+            // ç§»å‹•é€Ÿåº¦ï¼ˆå¹½éœŠï¼‰ px/sec
+            const float ghostMoveSpeed = 120.0f;
+            // ç›®çš„åœ°ã¯é¤¨ã®æ­£é¢ï¼ˆg_yakataPosï¼‰
+            float tx = g_yakataPos.x + (g_imageSize.x * 0.25f); // å°‘ã—é¤¨å¯„ã‚Šã‚’ç‹™ã†
+            float ty = g_yakataPos.y - 10.0f;
+            float dxh = tx - g_ghostPos.x;
+            float dyh = ty - g_ghostPos.y;
+            float distH = sqrtf(dxh * dxh + dyh * dyh);
+            if (distH > 2.0f)
+            {
+                float nx = dxh / distH;
+                float ny = dyh / distH;
+                float step = ghostMoveSpeed * delta;
+                if (step >= distH)
+                {
+                    g_ghostPos.x = tx;
+                    g_ghostPos.y = ty;
+                    // åˆ°ç€ã—ãŸã‚‰åœæ­¢ï¼ˆè§’åº¦ã¯å¤‰æ›´ã—ãªã„ï¼‰
+                    g_ghostState = GHOST_IDLE;
+                }
+                else
+                {
+                    g_ghostPos.x += nx * step;
+                    g_ghostPos.y += ny * step;
+                    // ç§»å‹•æ–¹å‘ã«è§’åº¦ã‚’æ›´æ–°ï¼ˆã‚¹ãƒ ãƒ¼ã‚ºãªå›è»¢ï¼‰
+                    float targetMoveAngle = atan2f(ny, nx);
+                    float moveDeltaAngle = AngleDelta(targetMoveAngle, g_ghostAngle);
+                    float moveRotSpeed = 2.5f; // ç§»å‹•ä¸­ã®å›è»¢é€Ÿåº¦ã¯å°‘ã—é…ã
+                    float moveMaxStep = moveRotSpeed * delta;
+                    if (fabsf(moveDeltaAngle) <= moveMaxStep)
+                    {
+                        g_ghostAngle = targetMoveAngle;
+                    }
+                    else
+                    {
+                        g_ghostAngle += (moveDeltaAngle > 0.0f ? 1.0f : -1.0f) * moveMaxStep;
+                    }
+                }
+            }
+            else
+            {
+                // æ—¢ã«åˆ°ç€
+                g_ghostState = GHOST_IDLE;
+            }
+        }
+    }
+
+    // å…¨ä½“ãƒ•ã‚§ãƒ¼ãƒ‰é–‹å§‹ï¼ˆé·ç§»ï¼‰
     if (!fadeStarted && timer > 7.0f && GetFadeState() == FADE_NONE)
     {
         fadeStarted = true;
@@ -195,51 +338,27 @@ void Logo_Update()
         }
     }
 
-    // —H—ì‚ÌˆÚ“®iƒ^[ƒQƒbƒg‚ÖüŒ`ˆÚ“®A“’B‚·‚é‚Æ’â~‚µ‚Ä‚Ó‚í‚Ó‚í‚Ì‚İŒp‘±j
-    if (g_ghostMoving)
+    // å¹½éœŠã®ãµã‚ãµã‚ï¼ˆåŸºæº–ä½ç½® g_ghostPos ã«å¯¾ã—ã¦æºã‚‰ã™ï¼‰
+    // bobbing ã¯è§’åº¦ã«å¾®å°å¤‰åŒ–ã‚’ä»˜ä¸ã—ã¦è‡ªç„¶ã«è¦‹ã›ã‚‹ï¼ˆãŸã ã—ç§»å‹•ä¸­ã¯æ§ãˆã‚ï¼‰
+    if (g_ghostState == GHOST_MOVE_TO_HOUSE)
     {
-        // ˆÚ“®‘¬“xiƒsƒNƒZƒ‹ / •bj
-        const float moveSpeed = 140.0f;
-        float dx = g_ghostTarget.x - g_ghostPos.x;
-        float dy = g_ghostTarget.y - g_ghostPos.y;
-        float dist = sqrtf(dx * dx + dy * dy);
-        if (dist > 1.0f)
-        {
-            float nx = dx / dist;
-            float ny = dy / dist;
-            float step = moveSpeed * delta;
-            if (step >= dist)
-            {
-                g_ghostPos.x = g_ghostTarget.x;
-                g_ghostPos.y = g_ghostTarget.y;
-                g_ghostMoving = false;
-            }
-            else
-            {
-                g_ghostPos.x += nx * step;
-                g_ghostPos.y += ny * step;
-            }
-        }
-        else
-        {
-            g_ghostPos.x = g_ghostTarget.x;
-            g_ghostPos.y = g_ghostTarget.y;
-            g_ghostMoving = false;
-        }
+        g_ghostOffset.y = sinf(timer * 2.0f) * 6.0f;
+        g_ghostOffset.x = sinf(timer * 0.7f) * 3.0f;
+        g_ghostBobRotation = sinf(timer * 1.2f) * 0.03f;
+    }
+    else
+    {
+        g_ghostOffset.y = sinf(timer * 2.5f) * 12.0f;   // ä¸Šä¸‹ã‚†ã‚‰ãï¼ˆæŒ¯å¹…12pxï¼‰
+        g_ghostOffset.x = sinf(timer * 0.9f) * 6.0f;    // å·¦å³ã‚ãšã‹ã«æºã‚Œã‚‹
+        g_ghostBobRotation = sinf(timer * 1.2f) * 0.06f;   // ã‚ãšã‹ãªè¿½åŠ å›è»¢
     }
 
-    // ---- —H—ì‚Ì‚Ó‚í‚Ó‚íi“’BŒã‚à¬‚³‚­—h‚ê‚éj ----
-    // timer ‚Íã‚ÅƒCƒ“ƒNƒŠƒƒ“ƒgÏ‚İ
-    g_ghostOffset.y = sinf(timer * 2.5f) * 16.0f;   // ã‰º‚ä‚ç‚¬iU•16pxj
-    g_ghostOffset.x = sinf(timer * 0.9f) * 6.0f;    // ¶‰E‚í‚¸‚©‚É—h‚ê‚é
-    g_ghostRotation = sinf(timer * 1.2f) * 0.10f;   // ‚í‚¸‚©‚È‰ñ“]iƒ‰ƒWƒAƒ“j
-
-    // 2”Ô—H—ì—pi–¢g—p‚Å‚à•Ûj
-    g_ghostOffset2.y = sinf((timer + 1.0f) * 1.8f) * 14.0f;
-    g_ghostOffset2.x = cosf(timer * 0.7f) * 6.0f;
-    g_ghostRotation2 = sinf((timer + 0.5f) * 1.1f) * 0.08f;
+    if (Keyboard_IsKeyDownTrigger(KK_E))
+    {
+        // Eã‚­ãƒ¼ã§å³åº§ã«ã‚¿ã‚¤ãƒˆãƒ«ã¸ï¼ˆãƒ‡ãƒãƒƒã‚°ç”¨ï¼‰
+        SetScene(SCENE_TITLE);
+    }
 }
-
 void LogoDraw(void)
 {
     const float SCREEN_WIDTH = (float)Direct3D_GetBackBufferWidth();
@@ -252,7 +371,7 @@ void LogoDraw(void)
 
     XMFLOAT2 center = { SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f };
 
-    // ”wŒi‚ğ‡‚Å“h‚éi1x1 ”’ƒeƒNƒXƒ`ƒƒ‚ÉF‚ğæZj
+    // èƒŒæ™¯ã‚’ç´«ã§å¡—ã‚‹ï¼ˆ1x1 ç™½ãƒ†ã‚¯ã‚¹ãƒãƒ£ã«è‰²ã‚’ä¹—ç®—ï¼‰
     if (g_SolidTex)
     {
         g_pContext->PSSetShaderResources(0, 1, &g_SolidTex);
@@ -261,29 +380,29 @@ void LogoDraw(void)
         DrawSprite_A(center, fullSize, purple);
     }
 
-    // 1) ‰®•~ (index 0) ‚ğ‰æ–Ê¶’[‚ÉŒÅ’èi500x500j
-    if (alpha[0] > 0.0f)
+    // 1) å±‹æ•· (index 0) ã‚’ç”»é¢å·¦ç«¯ã«å›ºå®šï¼ˆ500x500ï¼‰ â€” ãƒ•ã‚§ãƒ¼ãƒ‰ç„¡ã—
     {
         g_pContext->PSSetShaderResources(0, 1, &g_Texture[0]);
-        XMFLOAT4 col = { 1.0f, 1.0f, 1.0f, alpha[0] };
+        XMFLOAT4 col = { 1.0f, 1.0f, 1.0f, 1.0f }; // å¸¸ã« 1.0
         DrawSpriteEx(g_yakataPos, g_imageSize, col, 0, 1, 1);
     }
 
-    // 2) —H—ì (index 1) ‚ğ‰®•~‚Ì‘O•û‚ÖˆÚ“®‚³‚¹‚Ä~‚ßA‚Ó‚í‚Ó‚í‚Æ‰ñ“]‚³‚¹‚é
+    // 2) å¹½éœŠ (index 1)
     if (alpha[1] > 0.0f)
     {
         g_pContext->PSSetShaderResources(0, 1, &g_Texture[1]);
         XMFLOAT4 ghostCol = { 1.0f, 1.0f, 1.0f, alpha[1] };
+        // æç”»å›è»¢ = åŸºæº–è§’ + bobbing å¾®å°è§’åº¦
+        float drawRotation = g_ghostAngle + g_ghostBobRotation;
         XMFLOAT2 drawPos = { g_ghostPos.x + g_ghostOffset.x, g_ghostPos.y + g_ghostOffset.y };
-        DrawSpriteExRotation(drawPos, g_imageSize, ghostCol, 0, 1, 1, g_ghostRotation);
+        DrawSpriteExRotation(drawPos, g_imageSize, ghostCol, 0, 1, 1, drawRotation);
     }
 
-    // 3) ‚»‚Ì‘¼ (index 2) ‚Í‰EŠñ‚¹EƒtƒF[ƒh‚Å•`‰æi—á‚Æ‚µ‚Ä‰E‰º‚Öj
+    // 3) basuta (index 2) â€” å³ã‹ã‚‰æ¥ã¦é¤¨ã®å‰ã«ç§»å‹•
     if (alpha[2] > 0.0f)
     {
         g_pContext->PSSetShaderResources(0, 1, &g_Texture[2]);
         XMFLOAT4 col2 = { 1.0f, 1.0f, 1.0f, alpha[2] };
-        XMFLOAT2 pos2 = { center.x + 120.0f, center.y + 30.0f };
-        DrawSpriteEx(pos2, g_imageSize, col2, 0, 1, 1);
+        DrawSpriteEx(g_basutaPos, g_imageSize, col2, 0, 1, 1);
     }
 }
