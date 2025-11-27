@@ -1,0 +1,71 @@
+
+Logo.cpp
+
+//void Logo_Update()
+//{
+//	static float timer = 0.0f;         // タイトル表示からの累積時間
+//	static bool fadeStarted = false;    // フェード開始フラグ
+//	static bool waitStarted = false;    // フェード後の待機開始フラグ
+//	static float waitTimer = 0.0f;      // 待機タイマー
+//
+//	// タイトル表示用の時間計測
+//	timer += 1.0f / 60.0f; // 仮に60FPS
+//
+//	// タイトル画面表示後、フェードアウトを一度だけ開始
+//	if (!fadeStarted && timer > 7.0f && GetFadeState() == FADE_NONE)
+//	{
+//		fadeStarted = true;
+//		XMFLOAT4 color = { 0, 0, 0, 1 };
+//		SetFade(90, color, FADE_OUT, SCENE_TITLE); // フェードアウト開始
+//	}
+//
+//	// フェードが終わったら待機タイマー開始
+//	if (fadeStarted && !waitStarted && GetFadeState() == FADE_NONE)
+//	{
+//		waitStarted = true;
+//		waitTimer = 0.0f; // 待機タイマーリセット
+//	}
+//
+//	// 待機タイマーを進める
+//	if (waitStarted)
+//	{
+//		waitTimer += 1 / 60.0f; // 秒数カウント
+//
+//		// 1.5秒経過したらシーンを切り替える
+//		if (waitTimer >= 1.5)
+//		{
+//			SetScene(SCENE_TITLE); // ゲームシーンへ遷移
+//		}
+//	}
+//
+//	if (Keyboard_IsKeyDownTrigger(KK_E))
+//	{
+//		SetScene(SCENE_TITLE);
+//	}
+//
+//}
+
+
+//void LogoDraw(void)
+//{
+//
+//	const float SCREEN_WIDTH = (float)Direct3D_GetBackBufferWidth(); // 画面の幅
+//	const float SCREEN_HEIGHT = (float)Direct3D_GetBackBufferHeight(); // 画面の高さ
+//	// 頂点シェーダーに変換行列を設定
+//	Shader_SetMatrix(XMMatrixOrthographicOffCenterLH
+//	(0.0f, SCREEN_WIDTH, SCREEN_HEIGHT, 0.0f, 0.0f, 1.0f));
+//
+//	g_pContext->PSSetShaderResources(0, 1, &g_Texture[1]);
+//
+//	//画像サイズのスプライトを表示
+//	SetBlendState(BLENDSTATE_ALFA);
+//
+//	XMFLOAT2 pos = { SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f };
+//	XMFLOAT2 size = { SCREEN_WIDTH, SCREEN_HEIGHT };
+//	XMFLOAT4 color = { 1, 1, 1, 1 };
+//
+//	g_pContext->PSSetShaderResources(0, 1, &g_Texture[1]);
+//	DrawSprite_A(pos, size, color);
+//}
+
+_____________________________________________________________________
