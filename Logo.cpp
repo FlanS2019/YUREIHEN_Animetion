@@ -44,7 +44,7 @@ static bool g_ghostMoving = true;
 void Logo_Initialize(ID3D11Device* pDevice,
     ID3D11DeviceContext* pContext)
 {
-    // デバイスとデバイスコンテキストの保存aaaaaaaa
+    // デバイスとデバイスコンテキストの保存
     g_pDevice = pDevice;
     g_pContext = pContext;
 
