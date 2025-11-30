@@ -26,6 +26,9 @@ void DrawSpriteExRotation(XMFLOAT2 pos, XMFLOAT2 size,
 
 void DrawSprite_A(XMFLOAT2 pos, XMFLOAT2 size, XMFLOAT4 col);
 
+void DrawSpriteExFlip(XMFLOAT2 pos, XMFLOAT2 size,
+	XMFLOAT4 col, int bno, int wc, int hc, bool flipX, bool flipY);
+
 
 
 // í∏ì_ç\ë¢ëÃ

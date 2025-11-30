@@ -388,3 +388,63 @@ void DrawSprite_A(XMFLOAT2 pos, XMFLOAT2 size, XMFLOAT4 col)
 	// 描画
 	g_pContext->Draw(NUM_VERTEX, 0);
 }
+// 反転機能付きのスプライト描画関数
+void DrawSpriteExFlip(XMFLOAT2 pos, XMFLOAT2 size,
+	XMFLOAT4 col, int bno, int wc, int hc, bool flipX, bool flipY)
+{
+	Shader_Begin();
+
+	g_pDevice = Direct3D_GetDevice();
+	g_pContext = Direct3D_GetDeviceContext();
+
+	// 頂点バッファをロックする
+	D3D11_MAPPED_SUBRESOURCE msr;
+	g_pContext->Map(g_pVertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &msr);
+
+	// 頂点バッファへの仮想ポインタを取得
+	Vertex* v = (Vertex*)msr.pData;
+
+	//bno の左上のテクスチャ座標を計算
+	float w = 1.0f / wc;
+	float h = 1.0f / hc;
+
+	//ブロックの縦横サイズを計算
+	float x = (bno % wc) * w;
+	float y = (bno / wc) * h;
+
+	// テクスチャ座標（反転対応）
+	float u0 = flipX ? (x + w) : x;
+	float u1 = flipX ? x : (x + w);
+	float v0 = flipY ? (y + h) : y;
+	float v1 = flipY ? y : (y + h);
+
+	v[0].position = { pos.x - (size.x / 2), (pos.y - size.y / 2) , 0.0f };
+	v[0].color = col;
+	v[0].texCoord = { u0, v0 };
+
+	v[1].position = { pos.x + (size.x / 2), (pos.y - size.y / 2), 0.0f };
+	v[1].color = col;
+	v[1].texCoord = { u1, v0 };
+
+	v[2].position = { pos.x - (size.x / 2), pos.y + (size.y / 2), 0.0f };
+	v[2].color = col;
+	v[2].texCoord = { u0, v1 };
+
+	v[3].position = { pos.x + (size.x / 2), (pos.y + size.y / 2), 0.0f };
+	v[3].color = col;
+	v[3].texCoord = { u1, v1 };
+
+	// 頂点バッファのロックを解除
+	g_pContext->Unmap(g_pVertexBuffer, 0);
+
+	//頂点バッファを描画パイプラインに設定
+	UINT stride = sizeof(Vertex);
+	UINT offset = 0;
+	g_pContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
+
+	// プリミティブトポロジ設定
+	g_pContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+
+	// ポリゴン描画命令発行
+	g_pContext->Draw(NUM_VERTEX, 0);
+}
