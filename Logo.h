@@ -7,5 +7,4 @@ void Logo_Initialize(ID3D11Device* pDevice,
 void Logo_Finalize(void);
 void Logo_Update();
 void LogoDraw(void);
-void Some_UpdateFunction();
 

@@ -26,7 +26,9 @@ static float g_ghostBobRotation = 0.0f;
 static float g_ghostAngle = 0.0f;
 static float g_ghostTargetAngle = 0.0f;
 static bool g_ghostFacingLeft = false; // 幽霊の向き（true = 左向き）
+static bool g_prevGhostFacingLeft = false; // 前フレームの向き（bikkuri 同期用）
 static float g_ghostScale = 1.0f;      // 幽霊のスケール（縮小用）
+static bool g_forceFacingByTimer = true; // 向き制御をタイマー優先にするフラグ
 
 // basuta アニメーション用
 static XMFLOAT2 g_basutaOffset = { 0.0f, 0.0f };
@@ -36,6 +38,12 @@ static bool g_bikkuriShown = false;
 static float g_bikkuriTimer = 0.0f;
 static const float g_bikkuriDuration = 0.9f; // 表示時間（秒）
 static bool g_bikkuriFlip = false; // basuta の来る方向に合わせて反転する
+static const float g_bikkuriLeadTime = 0.35f; // basuta 到来より早めに表示する時間（秒） <- 追加
+static bool g_bikkuriShownOnce = false; // 一度だけ表示するフラグ
+
+// 先読み（幽霊が早めに反応する）設定
+static const float g_ghostLeadSeconds = 7.0f; // ここを変えると何秒早く反応するかを調整できます
+static const float g_basutaSpeed = 220.0f;   // basuta の移動速度（移動処理と同期）
 
 // 状態管理
 enum GhostState { GHOST_IDLE = 0, GHOST_ALERT, GHOST_MOVE_TO_HOUSE };
@@ -50,6 +58,10 @@ static XMFLOAT2 g_basutaPos = { 0.0f, 0.0f };
 static XMFLOAT2 g_basutaTarget = { 0.0f, 0.0f };
 static bool g_positionsInitialized = false;
 static bool g_basutaMoving = false;
+
+// 新規：basuta の出現元と画面内に入ったフラグ（幽霊の反転タイミング制御用）
+static bool g_basutaStartFromRight = false;
+static bool g_basutaEnteredScreen = false;
 
 static const float PI = 3.14159265358979323846f;
 
@@ -109,12 +121,21 @@ void Logo_Initialize(ID3D11Device* pDevice, ID3D11DeviceContext* pContext)
     g_ghostAngle = 0.0f;
     g_ghostTargetAngle = 0.0f;
     g_ghostState = GHOST_IDLE;
-    g_ghostFacingLeft = false;
+    g_ghostFacingLeft = false; // 元画像は右向きなので初期は右（false）
+    g_prevGhostFacingLeft = g_ghostFacingLeft;
     g_ghostScale = 1.0f;
 
     g_bikkuriShown = false;
-    g_bikkuriTimer = 0.0f;
+    g_bikkuriTimer = 5.5f;
     g_bikkuriFlip = false;
+    g_bikkuriShownOnce = false;
+
+    // 新規フラグ初期化
+    g_basutaStartFromRight = false;
+    g_basutaEnteredScreen = false;
+
+    // タイマー優先で向きを制御する（要求どおり）
+    g_forceFacingByTimer = true;
 }
 
 void Logo_Finalize()
@@ -145,9 +166,46 @@ void Logo_Update()
     timer += delta;
     imageTimer += delta;
 
+    // 強制タイマー制御：最初は右（false）、3秒後に左(true)、さらに1秒後に右(false) に戻す
+    if (g_forceFacingByTimer)
+    {
+        if (timer < 3.0f)
+        {
+            g_ghostFacingLeft = false; // 右向き（元画像の向き）
+        }
+        else if (timer < 4.0f)
+        {
+            g_ghostFacingLeft = true; // 3秒経過後→左向き
+        }
+        else
+        {
+            g_ghostFacingLeft = false; // さらに1秒後→右向きに戻す
+        }
+    }
+
+    // --- ここで向き変化を検知して bikkuri を同時に出す（ただし一度だけ） ---
+    if (!g_bikkuriShownOnce && g_ghostFacingLeft != g_prevGhostFacingLeft)
+    {
+        // 向きが変わった瞬間に bikkuri 表示を開始（1回だけ）
+        g_bikkuriShown = true;
+        g_bikkuriTimer = 0.0f;
+        g_bikkuriFlip = g_ghostFacingLeft;
+        // g_bikkuriShownOnce は実際に描画した後で true にする（描画を確実にするため）
+        // 前回向きを更新
+        g_prevGhostFacingLeft = g_ghostFacingLeft;
+
+        // デバッグ出力
+        char dbg[128];
+        sprintf_s(dbg, "Bikkuri triggered by facing-change: facingLeft=%d timer=%.2f\n", g_ghostFacingLeft, timer);
+        OutputDebugStringA(dbg);
+    }
+    // ------------------------------------------------------
+
+    // 画面幅を参照する（basuta の画面入場判定で使用）
+    const float SCREEN_WIDTH = (float)Direct3D_GetBackBufferWidth();
+
     if (!g_positionsInitialized)
     {
-        const float SCREEN_WIDTH = (float)Direct3D_GetBackBufferWidth();
         const float SCREEN_HEIGHT = (float)Direct3D_GetBackBufferHeight();
         XMFLOAT2 center = { SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f };
 
@@ -166,16 +224,35 @@ void Logo_Update()
 
         g_positionsInitialized = true;
         g_basutaMoving = false;
+
+        // 新規：basuta の出現元が右か左かを記録
+        g_basutaStartFromRight = (g_basutaPos.x > SCREEN_WIDTH);
+        g_basutaEnteredScreen = false;
     }
 
-    const float ghostStart = 0.5f;
-    const float basutaStart = 2.0f;
-    const float fadeDuration = 0.8f;
+    const float ghostStart = 1.5f;
+    const float basutaStart = 0.8f;
+    const float fadeDuration = 2.4f;
 
     if (timer > ghostStart)
     {
         alpha[1] += delta / fadeDuration;
         if (alpha[1] > 1.0f) alpha[1] = 1.0f;
+    }
+
+    // ここで早めに bikkuri を表示する（basutaStart より g_bikkuriLeadTime 秒前）
+    if (!g_bikkuriShownOnce && !g_bikkuriShown && timer > (basutaStart - g_bikkuriLeadTime) && timer <= basutaStart)
+    {
+        // basuta のスタート位置情報から反転方向を決定
+        g_bikkuriFlip = g_basutaStartFromRight; // 右から来るなら反転（true）
+        g_bikkuriShown = true;
+        g_bikkuriTimer = 0.0f;
+
+        // デバッグ出力
+        char dbg[128];
+        sprintf_s(dbg, "Bikkuri triggered by basuta lead: basutaStart=%.2f timer=%.2f flip=%d\n",
+            basutaStart, timer, g_bikkuriFlip);
+        OutputDebugStringA(dbg);
     }
 
     if (timer > basutaStart)
@@ -184,13 +261,18 @@ void Logo_Update()
         alpha[2] += delta / fadeDuration;
         if (alpha[2] > 1.0f) alpha[2] = 1.0f;
 
-        // basuta が動き始めた瞬間に一度だけ bikkuri を表示する
-        if (!g_basutaMoving)
+        // basuta が動き始めた瞬間に一度だけ bikkuri を表示する（ただし既に一度表示済みなら飛ばす）
+        if (!g_basutaMoving && !g_bikkuriShown && !g_bikkuriShownOnce)
         {
             // basuta は右端から来る想定 → basutaPos.x > basutaTarget.x の場合は左向きに来る
             g_bikkuriFlip = (g_basutaTarget.x < g_basutaPos.x);
             g_bikkuriShown = true;
             g_bikkuriTimer = 0.0f;
+
+            // デバッグ出力
+            char dbg[128];
+            sprintf_s(dbg, "Bikkuri triggered when basuta starts moving: flip=%d\n", g_bikkuriFlip);
+            OutputDebugStringA(dbg);
         }
 
         g_basutaMoving = true;
@@ -199,7 +281,7 @@ void Logo_Update()
     // basuta の移動処理
     if (g_basutaMoving)
     {
-        const float moveSpeed = 220.0f;
+        const float moveSpeed = g_basutaSpeed;
         float dx = g_basutaTarget.x - g_basutaPos.x;
         float dy = g_basutaTarget.y - g_basutaPos.y;
         float dist = sqrtf(dx * dx + dy * dy);
@@ -226,8 +308,45 @@ void Logo_Update()
             g_basutaPos.y = g_basutaTarget.y;
             g_basutaMoving = false;
         }
-    }
 
+        // 新規：basuta が「画面に見え始めた」最初のフレームで幽霊を振り向かせる
+        if (!g_basutaEnteredScreen)
+        {
+            const float enterThresholdRight = SCREEN_WIDTH - (g_imageSize.x * 0.5f);
+            const float enterThresholdLeft = (g_imageSize.x * 0.5f);
+
+            if (g_basutaStartFromRight)
+            {
+                if (g_basutaPos.x <= enterThresholdRight)
+                {
+                    g_basutaEnteredScreen = true;
+                    if (!g_forceFacingByTimer) g_ghostFacingLeft = false;  // ★ 右を見る = 反転なし（元の向き）
+
+                    if (g_ghostState == GHOST_IDLE)
+                    {
+                        g_ghostState = GHOST_ALERT;
+                        g_ghostTargetAngle = atan2f(g_basutaPos.y - g_ghostPos.y,
+                            g_basutaPos.x - g_ghostPos.x);
+                    }
+                }
+            }
+            else
+            {
+                if (g_basutaPos.x >= enterThresholdLeft)
+                {
+                    g_basutaEnteredScreen = true;
+                    if (!g_forceFacingByTimer) g_ghostFacingLeft = true;  // ★ 左を見る = 反転する
+
+                    if (g_ghostState == GHOST_IDLE)
+                    {
+                        g_ghostState = GHOST_ALERT;
+                        g_ghostTargetAngle = atan2f(g_basutaPos.y - g_ghostPos.y,
+                            g_basutaPos.x - g_ghostPos.x);
+                    }
+                }
+            }
+        }
+    }
     // bikkuri 表示タイマー更新（タイミングのみ制御）
     if (g_bikkuriShown)
     {
@@ -236,12 +355,14 @@ void Logo_Update()
         {
             g_bikkuriShown = false;
             g_bikkuriTimer = 0.0f;
+            // g_bikkuriShownOnce は LogoDraw() で描画した直後に true にする
         }
     }
 
-    // 幽霊の状態管理
+    // 幽霊の状態管理（既存ロジック）
     {
-        const float triggerDist = 320.0f;  // 検知距離（より遠くから反応）
+        const float baseTriggerDist = 320.0f;  // 元の検知距離
+        const float triggerDist = baseTriggerDist + (g_basutaSpeed * g_ghostLeadSeconds);
         const float fleeDist = 200.0f;     // 逃げ始める距離
 
         float dx = g_basutaPos.x - g_ghostPos.x;
@@ -250,28 +371,33 @@ void Logo_Update()
 
         if (g_ghostState == GHOST_IDLE)
         {
-            // basutaが近づいてきたら警戒開始
             if (dist <= triggerDist && alpha[2] > 0.3f)
             {
                 g_ghostState = GHOST_ALERT;
-                g_ghostTargetAngle = atan2f(g_basutaPos.y - g_ghostPos.y, g_basutaPos.x - g_ghostPos.x);
-                // basutaの方を向く（手前で反転）
-                g_ghostFacingLeft = (g_basutaPos.x < g_ghostPos.x);
+                g_ghostTargetAngle = atan2f(g_basutaPos.y - g_ghostPos.y,
+                    g_basutaPos.x - g_ghostPos.x);
+                if (!g_basutaEnteredScreen)
+                {
+                    if (!g_forceFacingByTimer)
+                    {
+                        g_ghostFacingLeft = (g_basutaPos.x < g_ghostPos.x);
+                    }
+                }
             }
         }
         else if (g_ghostState == GHOST_ALERT)
         {
-            // さらに近づいてきたら館に逃げる
             if (dist <= fleeDist)
             {
                 g_ghostState = GHOST_MOVE_TO_HOUSE;
-                // 館の方向を向くように反転を更新
                 float tx = g_yakataPos.x - (g_imageSize.x * 0.15f);
-                g_ghostFacingLeft = (tx < g_ghostPos.x);
+                if (!g_forceFacingByTimer)
+                {
+                    g_ghostFacingLeft = (tx < g_ghostPos.x);
+                }
             }
             else
             {
-                // まだ距離があるので警戒しながらbasutaを見続ける
                 const float rotSpeed = 3.5f;
                 float deltaAngle = AngleDelta(g_ghostTargetAngle, g_ghostAngle);
                 float maxStep = rotSpeed * delta;
@@ -283,7 +409,6 @@ void Logo_Update()
                 {
                     g_ghostAngle += (deltaAngle > 0.0f ? 1.0f : -1.0f) * maxStep;
                 }
-                // basutaの位置を追跡
                 g_ghostTargetAngle = atan2f(g_basutaPos.y - g_ghostPos.y, g_basutaPos.x - g_ghostPos.x);
             }
         }
@@ -296,11 +421,9 @@ void Logo_Update()
             float dyh = ty - g_ghostPos.y;
             float distH = sqrtf(dxh * dxh + dyh * dyh);
 
-            // 館に近づくにつれて縮小（遠近感）
             const float startDist = 200.0f; // 縮小開始距離
             if (distH < startDist)
             {
-                // 距離に応じて 1.0 → 0.3 まで縮小
                 g_ghostScale = 0.3f + (distH / startDist) * 0.7f;
             }
             else
@@ -318,7 +441,6 @@ void Logo_Update()
                     g_ghostPos.x = tx;
                     g_ghostPos.y = ty;
                     g_ghostState = GHOST_IDLE;
-                    // 館の中に入ったので完全に消す
                     alpha[1] = 0.0f;
                 }
                 else
@@ -342,7 +464,6 @@ void Logo_Update()
             else
             {
                 g_ghostState = GHOST_IDLE;
-                // 館の中に入ったので完全に消す
                 alpha[1] = 0.0f;
             }
         }
@@ -387,13 +508,11 @@ void Logo_Update()
     // basuta のふわふわ（歩いているような揺れ）
     if (g_basutaMoving)
     {
-        // 歩行中は上下に揺らす（より速いリズム）
         g_basutaOffset.y = sinf(timer * 5.0f) * 8.0f;
-        g_basutaOffset.x = sinf(timer * 10.0f) * 3.0f; // 左右の微妙な揺れ
+        g_basutaOffset.x = sinf(timer * 10.0f) * 3.0f;
     }
     else
     {
-        // 停止中は控えめな揺れ
         g_basutaOffset.y = sinf(timer * 2.0f) * 4.0f;
         g_basutaOffset.x = sinf(timer * 1.5f) * 2.0f;
     }
@@ -443,8 +562,9 @@ void LogoDraw(void)
         // スケールを適用したサイズ
         XMFLOAT2 scaledSize = { g_imageSize.x * g_ghostScale, g_imageSize.y * g_ghostScale };
 
-        // 反転機能付きで描画
-        DrawSpriteExFlip(drawPos, scaledSize, ghostCol, 0, 1, 1, g_ghostFacingLeft, false);
+        // 描画の反転は g_ghostFacingLeft を直接使う（元画像は右向き）
+        bool shouldFlip = g_ghostFacingLeft;
+        DrawSpriteExFlip(drawPos, scaledSize, ghostCol, 0, 1, 1, shouldFlip, false);
     }
 
     // 3) basuta（ふわふわ追加）
@@ -456,18 +576,51 @@ void LogoDraw(void)
         DrawSpriteEx(drawPos, g_imageSize, col2, 0, 1, 1);
     }
 
-    // 4) bikkuri（basuta が端から来たタイミングで一時表示、反転は basuta の来る方向に合わせる）
+    // 4) bikkuri（幽霊の向き変化と同期して表示） — 画面内に収まるよう Y を下げ、1 回のみ表示
     if (g_bikkuriShown && g_Texture[3])
     {
+        // bikkuri のサイズと位置を調整（やや小さく、幽霊の下に表示）
+        XMFLOAT2 bsize = { 180.0f, 180.0f }; // 少し小さくしてはみ出しを防ぐ
+        XMFLOAT2 bpos;
+        bpos.x = g_ghostPos.x + g_ghostOffset.x;
+        // 以前より下に配置（画面内に収めやすく）
+        bpos.y = g_ghostPos.y + g_ghostOffset.y + (g_imageSize.y * 0.45f);
+
+        // 画面外にはみ出さないようにクランプ（中心座標基準）
+        float halfH = bsize.y * 0.5f;
+        const float margin = 8.0f;
+        if (bpos.y + halfH + margin > SCREEN_HEIGHT)
+        {
+            bpos.y = SCREEN_HEIGHT - halfH - margin;
+        }
+        if (bpos.y - halfH - margin < 0.0f)
+        {
+            bpos.y = halfH + margin;
+        }
+
+        // 背景のソリッドを軽く描画して見えやすくする（デバッグ用、透過）
+        if (g_SolidTex)
+        {
+            g_pContext->PSSetShaderResources(0, 1, &g_SolidTex);
+            XMFLOAT4 dbgBg = { 0.0f, 0.0f, 0.0f, 0.45f }; // 半透明の黒
+            XMFLOAT2 bgSize = { bsize.x + 20.0f, bsize.y + 20.0f };
+            DrawSpriteEx({ bpos.x, bpos.y }, bgSize, dbgBg, 0, 1, 1);
+        }
+
+        // bikkuri 本体を描画（幽霊の向きに合わせて反転）
         g_pContext->PSSetShaderResources(0, 1, &g_Texture[3]);
         XMFLOAT4 bcol = { 1.0f, 1.0f, 1.0f, 1.0f };
-
-        // basuta の上方に表示する（少し離す）
-        XMFLOAT2 bpos = { g_basutaPos.x + g_basutaOffset.x, g_basutaPos.y + g_basutaOffset.y - (g_imageSize.y * 0.6f) };
-        // 小さめサイズで表示
-        XMFLOAT2 bsize = { 220.0f, 220.0f };
-
-        // 既存の反転機能を使う（反転ロジックは変えない）
         DrawSpriteExFlip(bpos, bsize, bcol, 0, 1, 1, g_bikkuriFlip, false);
+
+        // 描画を確認したら「一度だけ表示」フラグを立てる
+        if (!g_bikkuriShownOnce)
+        {
+            g_bikkuriShownOnce = true;
+
+            // デバッグ出力
+            char dbg[128];
+            sprintf_s(dbg, "Bikkuri drawn on screen at (%.1f, %.1f), flip=%d\n", bpos.x, bpos.y, g_bikkuriFlip);
+            OutputDebugStringA(dbg);
+        }
     }
 }
