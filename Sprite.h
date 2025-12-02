@@ -39,3 +39,5 @@ struct Vertex
 	XMFLOAT2 texCoord; //テクスチャ座標
 };
 
+ID3D11ShaderResourceView* Sprite_LoadTexture(ID3D11Device* pDevice, const wchar_t* path);
+

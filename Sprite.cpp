@@ -3,6 +3,8 @@
 #include "shader.h"
 #include "direct3d.h"
 #include "keyboard.h"
+#include "DirectXTex.h"
+#include <cassert>
 
 //グローバル変数
 static constexpr int NUM_VERTEX = 4; // 使用できる最大頂点数
@@ -11,6 +13,22 @@ static ID3D11Buffer* g_pVertexBuffer = nullptr; // 頂点バッファ
 // 注意！初期化で外部から設定されるもの。Release不要。
 static ID3D11Device* g_pDevice = nullptr;
 static ID3D11DeviceContext* g_pContext = nullptr;
+
+ID3D11ShaderResourceView* Sprite_LoadTexture(ID3D11Device* pDevice, const wchar_t* path)
+{
+	if (!pDevice || !path) return nullptr;
+
+	TexMetadata metadata;
+	ScratchImage image;
+	HRESULT hr = LoadFromWICFile(path, WIC_FLAGS_NONE, &metadata, image);
+	if (FAILED(hr)) return nullptr;
+
+	ID3D11ShaderResourceView* srv = nullptr;
+	hr = CreateShaderResourceView(pDevice, image.GetImages(), image.GetImageCount(), metadata, &srv);
+	if (FAILED(hr) || !srv) return nullptr;
+
+	return srv;
+}
 
 void InitializeSprite()
 {
