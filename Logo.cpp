@@ -8,7 +8,7 @@
 #include <cmath>
 #include <d3d11.h>
 
-static ID3D11ShaderResourceView* g_Texture[4];
+static ID3D11ShaderResourceView* g_Texture[5];
 static ID3D11ShaderResourceView* g_SolidTex = nullptr;
 static ID3D11Device* g_pDevice = nullptr;
 static ID3D11DeviceContext* g_pContext = nullptr;
@@ -30,6 +30,12 @@ static float g_ghostScale = 1.0f;      // 幽霊のスケール（縮小用）
 
 // basuta アニメーション用
 static XMFLOAT2 g_basutaOffset = { 0.0f, 0.0f };
+
+// bikkuri 用（表示タイミング制御）
+static bool g_bikkuriShown = false;
+static float g_bikkuriTimer = 0.0f;
+static const float g_bikkuriDuration = 0.9f; // 表示時間（秒）
+static bool g_bikkuriFlip = false; // basuta の来る方向に合わせて反転する
 
 // 状態管理
 enum GhostState { GHOST_IDLE = 0, GHOST_ALERT, GHOST_MOVE_TO_HOUSE };
@@ -60,26 +66,20 @@ void Logo_Initialize(ID3D11Device* pDevice, ID3D11DeviceContext* pContext)
     g_pDevice = pDevice;
     g_pContext = pContext;
 
-    TexMetadata metadata1;
-    ScratchImage image1;
-    LoadFromWICFile(L"asset\\yureihen\\yakata_jimen1.png",
-        WIC_FLAGS_NONE, &metadata1, image1);
-    CreateShaderResourceView(pDevice, image1.GetImages(),
-        image1.GetImageCount(), metadata1, &g_Texture[0]);
+    // 画像読み込みを共通関数へ置換（重複削減）
+    g_Texture[0] = Sprite_LoadTexture(pDevice, L"asset\\yureihen\\yakata_jimen1.png");
     assert(g_Texture[0]);
 
-    LoadFromWICFile(L"asset\\yureihen\\yurei1.png",
-        WIC_FLAGS_NONE, &metadata1, image1);
-    CreateShaderResourceView(pDevice, image1.GetImages(),
-        image1.GetImageCount(), metadata1, &g_Texture[1]);
+    g_Texture[1] = Sprite_LoadTexture(pDevice, L"asset\\yureihen\\yurei1.png");
     assert(g_Texture[1]);
 
-    LoadFromWICFile(L"asset\\yureihen\\basuta1.png",
-        WIC_FLAGS_NONE, &metadata1, image1);
-    CreateShaderResourceView(pDevice, image1.GetImages(),
-        image1.GetImageCount(), metadata1, &g_Texture[2]);
+    g_Texture[2] = Sprite_LoadTexture(pDevice, L"asset\\yureihen\\basuta1.png");
     assert(g_Texture[2]);
 
+    g_Texture[3] = Sprite_LoadTexture(pDevice, L"asset\\bikkuri.png");
+    assert(g_Texture[3]);
+
+    // 以下は変更なし（1x1 テクスチャ生成等）
     D3D11_TEXTURE2D_DESC td = {};
     td.Width = 1;
     td.Height = 1;
@@ -111,11 +111,15 @@ void Logo_Initialize(ID3D11Device* pDevice, ID3D11DeviceContext* pContext)
     g_ghostState = GHOST_IDLE;
     g_ghostFacingLeft = false;
     g_ghostScale = 1.0f;
+
+    g_bikkuriShown = false;
+    g_bikkuriTimer = 0.0f;
+    g_bikkuriFlip = false;
 }
 
 void Logo_Finalize()
 {
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 4; i++)
     {
         if (g_Texture[i])
         {
@@ -176,8 +180,19 @@ void Logo_Update()
 
     if (timer > basutaStart)
     {
+        // basuta 表示開始（既存ロジックはそのまま）
         alpha[2] += delta / fadeDuration;
         if (alpha[2] > 1.0f) alpha[2] = 1.0f;
+
+        // basuta が動き始めた瞬間に一度だけ bikkuri を表示する
+        if (!g_basutaMoving)
+        {
+            // basuta は右端から来る想定 → basutaPos.x > basutaTarget.x の場合は左向きに来る
+            g_bikkuriFlip = (g_basutaTarget.x < g_basutaPos.x);
+            g_bikkuriShown = true;
+            g_bikkuriTimer = 0.0f;
+        }
+
         g_basutaMoving = true;
     }
 
@@ -210,6 +225,17 @@ void Logo_Update()
             g_basutaPos.x = g_basutaTarget.x;
             g_basutaPos.y = g_basutaTarget.y;
             g_basutaMoving = false;
+        }
+    }
+
+    // bikkuri 表示タイマー更新（タイミングのみ制御）
+    if (g_bikkuriShown)
+    {
+        g_bikkuriTimer += 1.0f / 60.0f;
+        if (g_bikkuriTimer >= g_bikkuriDuration)
+        {
+            g_bikkuriShown = false;
+            g_bikkuriTimer = 0.0f;
         }
     }
 
@@ -428,5 +454,20 @@ void LogoDraw(void)
         XMFLOAT4 col2 = { 1.0f, 1.0f, 1.0f, alpha[2] };
         XMFLOAT2 drawPos = { g_basutaPos.x + g_basutaOffset.x, g_basutaPos.y + g_basutaOffset.y };
         DrawSpriteEx(drawPos, g_imageSize, col2, 0, 1, 1);
+    }
+
+    // 4) bikkuri（basuta が端から来たタイミングで一時表示、反転は basuta の来る方向に合わせる）
+    if (g_bikkuriShown && g_Texture[3])
+    {
+        g_pContext->PSSetShaderResources(0, 1, &g_Texture[3]);
+        XMFLOAT4 bcol = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+        // basuta の上方に表示する（少し離す）
+        XMFLOAT2 bpos = { g_basutaPos.x + g_basutaOffset.x, g_basutaPos.y + g_basutaOffset.y - (g_imageSize.y * 0.6f) };
+        // 小さめサイズで表示
+        XMFLOAT2 bsize = { 220.0f, 220.0f };
+
+        // 既存の反転機能を使う（反転ロジックは変えない）
+        DrawSpriteExFlip(bpos, bsize, bcol, 0, 1, 1, g_bikkuriFlip, false);
     }
 }
